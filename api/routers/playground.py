@@ -2,6 +2,7 @@
 
 import time
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -14,9 +15,16 @@ PAGE = Path(__file__).resolve().parent.parent / "static" / "playground.html"
 router = APIRouter(prefix="/playground", tags=["playground"])
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class AskRequest(BaseModel):
     provider: str
     prompt: str = Field(min_length=1)
+    # Messages précédents de la conversation ; les clients LLM n'en gardent que les derniers
+    history: list[ChatMessage] = []
 
 
 class AskResponse(BaseModel):
@@ -46,7 +54,7 @@ def ask(request: AskRequest) -> AskResponse:
     call, model = PROVIDERS[request.provider]
     start = time.perf_counter()
     try:
-        answer = call(request.prompt, None)
+        answer = call(request.prompt, None, [m.model_dump() for m in request.history])
     except Exception as exc:
         raise HTTPException(502, f"Erreur {request.provider} : {type(exc).__name__} : {exc}") from exc
     return AskResponse(

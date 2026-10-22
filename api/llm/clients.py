@@ -1,10 +1,12 @@
 """Clients LLM : une fonction par fournisseur, toutes avec la même signature.
 
-    fournisseur(prompt: str, system: str | None = None) -> str
+    fournisseur(prompt: str, system: str | None = None, history: list[Message] | None = None) -> str
 
 Les routes peuvent ainsi changer de fournisseur sans modifier leur code.
 Le prompt système SOC commun (llm/prompts.py) est toujours appliqué ; `system` ajoute
 des instructions propres à l'appel, à la suite de ces règles.
+`history` : messages précédents de la conversation ({"role": "user" | "assistant", "content": ...}),
+du plus ancien au plus récent ; seuls les HISTORY_MAX_MESSAGES derniers sont envoyés.
 Les clés API sont lues dans les variables d'environnement (chargées depuis le .env racine).
 """
 
@@ -32,6 +34,11 @@ OLLAMA_TIMEOUT_S = 300
 # (« health resp: ... wsarecv: An existing connection was forcibly closed ») : on réessaie.
 OLLAMA_ATTEMPTS = 2
 
+# Mémoire de conversation courte : 3 derniers échanges (question + réponse)
+HISTORY_MAX_MESSAGES = 6
+
+Message = dict[str, str]
+
 _gemini_client: genai.Client | None = None
 
 
@@ -54,11 +61,22 @@ def _build_system(system: str | None) -> str:
     return f"{SOC_SYSTEM_PROMPT}\n# Instructions supplémentaires\n{system}"
 
 
-def gemini(prompt: str, system: str | None = None) -> str:
+def _recent(history: list[Message] | None) -> list[Message]:
+    """Derniers messages de la conversation, dans la limite de HISTORY_MAX_MESSAGES."""
+    return (history or [])[-HISTORY_MAX_MESSAGES:]
+
+
+def gemini(prompt: str, system: str | None = None, history: list[Message] | None = None) -> str:
     """Envoie le prompt à Gemini et renvoie la réponse texte."""
+    # Gemini nomme « model » le rôle de l'assistant
+    contents = [
+        types.Content(role="user" if m["role"] == "user" else "model", parts=[types.Part(text=m["content"])])
+        for m in _recent(history)
+    ]
+    contents.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
     response = _get_gemini_client().models.generate_content(
         model=GEMINI_MODEL,
-        contents=prompt,
+        contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=_build_system(system),
             temperature=TEMPERATURE,
@@ -68,12 +86,13 @@ def gemini(prompt: str, system: str | None = None) -> str:
     return response.text or ""
 
 
-def ollama(prompt: str, system: str | None = None) -> str:
+def ollama(prompt: str, system: str | None = None, history: list[Message] | None = None) -> str:
     """Envoie le prompt au modèle local (Ollama) et renvoie la réponse texte."""
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [
             {"role": "system", "content": _build_system(system)},
+            *_recent(history),
             {"role": "user", "content": prompt},
         ],
         "stream": False,
@@ -97,7 +116,7 @@ def _ollama_error(response: httpx.Response) -> str:
 
 
 # Fournisseurs disponibles : nom -> (fonction, modèle)
-PROVIDERS: dict[str, tuple[Callable[[str, str | None], str], str]] = {
+PROVIDERS: dict[str, tuple[Callable[[str, str | None, list[Message] | None], str], str]] = {
     "gemini": (gemini, GEMINI_MODEL),
     "phi4": (ollama, OLLAMA_MODEL),
 }

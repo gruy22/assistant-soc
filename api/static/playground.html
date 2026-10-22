@@ -71,7 +71,7 @@
     <textarea id="input" rows="1" placeholder="Décris une alerte…" autofocus></textarea>
     <button id="send" type="submit">Envoyer</button>
   </form>
-  <p class="hint">Entrée pour envoyer · Maj+Entrée pour aller à la ligne · chaque message est analysé seul (pas de mémoire de conversation)</p>
+  <p class="hint">Entrée pour envoyer · Maj+Entrée pour aller à la ligne · le modèle se souvient des 3 derniers échanges · « Effacer » remet la mémoire à zéro</p>
 </footer>
 <script>
   const thread = document.getElementById("thread");
@@ -80,6 +80,8 @@
   const switchEl = document.getElementById("switch");
   let provider = "gemini";
   try { provider = localStorage.getItem("provider") || provider; } catch {}
+  // Mémoire de conversation : échanges réussis uniquement, partagés entre fournisseurs
+  let history = [];
 
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -134,10 +136,11 @@
       const res = await fetch("/playground/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: used, prompt }),
+        body: JSON.stringify({ provider: used, prompt, history: history.slice(-6) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || res.statusText);
+      history.push({ role: "user", content: prompt }, { role: "assistant", content: data.answer });
       bubble.innerHTML = render(data.answer) +
         `<div class="meta">${escapeHtml(data.provider)} · ${escapeHtml(data.model)} · ${data.duration_s} s</div>`;
     } catch (err) {
@@ -170,6 +173,7 @@
     input.style.height = input.scrollHeight + "px";
   });
   document.getElementById("clear").onclick = () => {
+    history = [];
     thread.innerHTML = '<p class="empty" id="empty">Colle une alerte de sécurité pour l\'analyser.</p>';
     input.focus();
   };
