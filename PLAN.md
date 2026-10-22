@@ -1,6 +1,6 @@
 # Plan — client LLM Gemini (`api/llm/clients.py`)
 
-Statut : **validé avec `gemini-3.1-flash-lite`** et réalisé. Appel test réussi le 22/10/2026 : réponse « OK », 6 tokens en entrée, 0 en réflexion, 1 en sortie (après deux échecs 503 « modèle surchargé » côté Google).
+Statut : réalisé. Validé d'abord avec `gemini-3.1-flash-lite`, puis **passé à `gemini-3.5-flash-lite`** à la demande de l'utilisateur, car le 3.1 était trop souvent saturé (erreurs 503). Appel test réussi le 22/10/2026 sur le 3.5 : réponse « OK », 6 tokens en entrée, 0 en réflexion, 1 en sortie.
 
 Le plan précédent (endpoint `/health`) est terminé et commité (`1e627b6`).
 

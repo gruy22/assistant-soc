@@ -11,8 +11,8 @@ import os
 from google import genai
 from google.genai import types
 
-# Modèle Gemini le moins coûteux accessible à un nouveau projet (voir PLAN.md)
-GEMINI_MODEL = "gemini-3.1-flash-lite"
+# Flash-Lite 3.5 : 3.1 trop souvent saturé (erreurs 503). Les modèles >= 3.6 ignorent la température.
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 TEMPERATURE = 0.1
 # Réflexion au minimum pour limiter les tokens de sortie
 GEMINI_THINKING_LEVEL = types.ThinkingLevel.MINIMAL
