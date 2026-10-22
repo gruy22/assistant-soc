@@ -1,16 +1,19 @@
 """Clients LLM : une fonction par fournisseur, toutes avec la même signature.
 
-    fournisseur(prompt: str, system: str | None = None, history: list[Message] | None = None) -> str
+    fournisseur(prompt: str, system: str | None = None, history: list[Message] | None = None,
+                max_tokens: int | None = None) -> str
 
 Les routes peuvent ainsi changer de fournisseur sans modifier leur code.
 Le prompt système SOC commun (llm/prompts.py) est toujours appliqué ; `system` ajoute
 des instructions propres à l'appel, à la suite de ces règles.
 `history` : messages précédents de la conversation ({"role": "user" | "assistant", "content": ...}),
 du plus ancien au plus récent ; seuls les HISTORY_MAX_MESSAGES derniers sont envoyés.
+`max_tokens` : coupe la réponse après ce nombre de tokens générés (aucune limite par défaut).
 Les clés API sont lues dans les variables d'environnement (chargées depuis le .env racine).
 """
 
 import os
+import threading
 from collections.abc import Callable
 
 import httpx
@@ -40,17 +43,21 @@ HISTORY_MAX_MESSAGES = 6
 Message = dict[str, str]
 
 _gemini_client: genai.Client | None = None
+# Les requêtes FastAPI tournent dans plusieurs threads : sans verrou, deux premiers appels
+# simultanés créeraient chacun un client, et celui écrasé serait fermé en plein appel.
+_gemini_lock = threading.Lock()
 
 
 def _get_gemini_client() -> genai.Client:
     """Crée le client Gemini au premier appel, puis le réutilise."""
     global _gemini_client
-    if _gemini_client is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY absente : l'ajouter dans le .env à la racine du projet.")
-        # Clé passée explicitement : le SDK donnerait sinon la priorité à GOOGLE_API_KEY
-        _gemini_client = genai.Client(api_key=api_key)
+    with _gemini_lock:
+        if _gemini_client is None:
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise RuntimeError("GEMINI_API_KEY absente : l'ajouter dans le .env à la racine du projet.")
+            # Clé passée explicitement : le SDK donnerait sinon la priorité à GOOGLE_API_KEY
+            _gemini_client = genai.Client(api_key=api_key)
     return _gemini_client
 
 
@@ -66,7 +73,9 @@ def _recent(history: list[Message] | None) -> list[Message]:
     return (history or [])[-HISTORY_MAX_MESSAGES:]
 
 
-def gemini(prompt: str, system: str | None = None, history: list[Message] | None = None) -> str:
+def gemini(
+    prompt: str, system: str | None = None, history: list[Message] | None = None, max_tokens: int | None = None
+) -> str:
     """Envoie le prompt à Gemini et renvoie la réponse texte."""
     # Gemini nomme « model » le rôle de l'assistant
     contents = [
@@ -81,12 +90,15 @@ def gemini(prompt: str, system: str | None = None, history: list[Message] | None
             system_instruction=_build_system(system),
             temperature=TEMPERATURE,
             thinking_config=types.ThinkingConfig(thinking_level=GEMINI_THINKING_LEVEL),
+            max_output_tokens=max_tokens,
         ),
     )
     return response.text or ""
 
 
-def ollama(prompt: str, system: str | None = None, history: list[Message] | None = None) -> str:
+def ollama(
+    prompt: str, system: str | None = None, history: list[Message] | None = None, max_tokens: int | None = None
+) -> str:
     """Envoie le prompt au modèle local (Ollama) et renvoie la réponse texte."""
     payload = {
         "model": OLLAMA_MODEL,
@@ -96,7 +108,8 @@ def ollama(prompt: str, system: str | None = None, history: list[Message] | None
             {"role": "user", "content": prompt},
         ],
         "stream": False,
-        "options": {"temperature": TEMPERATURE},
+        # num_predict = -1 : pas de limite
+        "options": {"temperature": TEMPERATURE, "num_predict": max_tokens or -1},
     }
     for attempt in range(1, OLLAMA_ATTEMPTS + 1):
         response = httpx.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=OLLAMA_TIMEOUT_S)
@@ -116,7 +129,7 @@ def _ollama_error(response: httpx.Response) -> str:
 
 
 # Fournisseurs disponibles : nom -> (fonction, modèle)
-PROVIDERS: dict[str, tuple[Callable[[str, str | None, list[Message] | None], str], str]] = {
+PROVIDERS: dict[str, tuple[Callable[[str, str | None, list[Message] | None, int | None], str], str]] = {
     "gemini": (gemini, GEMINI_MODEL),
     "phi4": (ollama, OLLAMA_MODEL),
 }

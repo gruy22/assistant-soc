@@ -24,7 +24,7 @@
     font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   header {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
     padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
   }
   header h1 { margin: 0; font-size: 16px; }
@@ -55,6 +55,32 @@
     padding: 8px 16px; font: inherit; cursor: pointer; }
   #send:disabled { opacity: .5; cursor: default; }
   .hint { max-width: 820px; margin: 6px auto 0; font-size: 12px; color: var(--muted); }
+  /* Analyse en lot des tickets */
+  details.batch { border-bottom: 1px solid var(--border); background: var(--panel); padding: 0 16px; }
+  details.batch summary { cursor: pointer; padding: 10px 0; font-weight: 600; font-size: 14px; }
+  .jobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px;
+    max-width: 1000px; margin: 0 auto; padding-bottom: 14px; }
+  .job { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--bg); }
+  .job-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .job-head strong small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+  .job button { border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer;
+    background: var(--accent); color: #fff; }
+  .job button.stop { background: var(--error); }
+  .job button:disabled { opacity: .5; cursor: default; }
+  .bar { height: 8px; border-radius: 4px; background: var(--border); margin: 10px 0 6px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+  .stats b { color: var(--text); font-weight: 600; }
+  .sev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+  .sev div { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; color: var(--muted); }
+  .sev div b { display: block; font-size: 18px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .sev .HIGH b { color: #d6455a; } .sev .MEDIUM b { color: #d98a1f; } .sev .LOW b { color: #2f9a5e; }
+  .job .err { margin-top: 8px; font-size: 12px; color: var(--error); white-space: pre-wrap; }
+  .job-actions { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .job-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .job-actions input, .job-actions select { padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text); font: inherit; }
+  .job-actions input { width: 64px; }
 </style>
 </head>
 <body>
@@ -65,6 +91,10 @@
     <button id="clear" type="button" title="Effacer la conversation">Effacer</button>
   </div>
 </header>
+<details class="batch" id="batch">
+  <summary>Analyse des tickets (data/tickets.json) · choisis le nombre de tickets, les premiers du fichier sont analysés</summary>
+  <div class="jobs" id="jobs"></div>
+</details>
 <main><div class="thread" id="thread"><p class="empty" id="empty">Colle une alerte de sécurité pour l'analyser.</p></div></main>
 <footer>
   <form id="form">
@@ -179,6 +209,114 @@
   };
 
   loadProviders();
+
+  // --- Analyse en lot des tickets ---------------------------------------------
+  const SEVERITIES = ["HIGH", "MEDIUM", "LOW", "INCERTITUDE", "NON RECONNUE", "ERREUR"];
+  const STATUS_LABEL = { running: "en cours", stopping: "arrêt en cours…", stopped: "arrêtée", done: "terminée" };
+  const jobsEl = document.getElementById("jobs");
+  let pollTimer = null;
+
+  function duration(s) {
+    if (s == null) return "—";
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+    return h ? `${h} h ${String(m).padStart(2, "0")} min` : m ? `${m} min ${String(sec).padStart(2, "0")} s` : `${sec} s`;
+  }
+
+  // La carte est créée une fois, puis seules ses valeurs sont mises à jour (le bouton reste cliquable)
+  function renderJob(name, model, job, ticketsTotal) {
+    let card = document.getElementById("job-" + name);
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "job";
+      card.id = "job-" + name;
+      card.innerHTML = `
+        <div class="job-head">
+          <strong>${escapeHtml(name)}<small>${escapeHtml(model)}</small></strong>
+          <div class="job-actions">
+            <select title="Rapide : sévérité seule. Complet : sévérité, explication et actions.">
+              <option value="rapide">Rapide (sévérité seule)</option>
+              <option value="complet">Complet</option>
+            </select>
+            <input type="number" min="1" max="${ticketsTotal}" value="${Math.min(10, ticketsTotal)}"
+              title="Nombre de tickets à analyser (les premiers du fichier)"> / ${ticketsTotal}
+            <button type="button"></button>
+          </div>
+        </div>
+        <div class="bar"><div></div></div>
+        <div class="stats">
+          <span>Statut : <b data-f="status"></b></span>
+          <span>Mode : <b data-f="mode"></b></span>
+          <span>Analysés : <b data-f="done"></b></span>
+          <span>Écoulé : <b data-f="elapsed"></b></span>
+          <span>Restant : <b data-f="eta"></b></span>
+          <span>Par ticket : <b data-f="per"></b></span>
+        </div>
+        <div class="sev">${SEVERITIES.map(s =>
+          `<div class="${s.replace(" ", "-")}">${s}<b data-sev="${s}">0</b></div>`).join("")}</div>
+        <div class="err"></div>`;
+      card.querySelector("button").onclick = e => jobAction(name, e.currentTarget.dataset.action);
+      jobsEl.appendChild(card);
+    }
+    const running = job && (job.status === "running" || job.status === "stopping");
+    const pct = job && job.total ? Math.round(job.done / job.total * 100) : 0;
+    const counts = (job && job.counts) || {};
+    const set = (f, v) => { card.querySelector(`[data-f="${f}"]`).textContent = v; };
+
+    const button = card.querySelector("button");
+    button.dataset.action = running ? "stop" : "start";
+    button.className = running ? "stop" : "";
+    button.disabled = Boolean(job && job.status === "stopping");
+    button.textContent = running ? "Arrêter" : job ? "Relancer" : "Analyser";
+    card.querySelector("input").disabled = Boolean(running);
+    card.querySelector("select").disabled = Boolean(running);
+
+    card.querySelector(".bar > div").style.width = pct + "%";
+    set("status", job ? STATUS_LABEL[job.status] : "pas lancée");
+    set("mode", job ? job.mode : "—");
+    set("done", `${job ? job.done : 0} / ${job ? job.total : "—"} (${pct} %)`);
+    set("elapsed", duration(job && job.elapsed_s));
+    set("eta", job && job.status === "running" ? duration(job.eta_s) : "—");
+    set("per", job && job.per_ticket_s != null ? `${job.per_ticket_s} s` : "—");
+    for (const s of SEVERITIES) card.querySelector(`[data-sev="${s}"]`).textContent = counts[s] || 0;
+    card.querySelector(".err").textContent = job ? job.errors.join("\n") : "";
+  }
+
+  let lastJobs = {};
+
+  async function refreshJobs() {
+    const [providers, state] = await Promise.all([
+      fetch("/playground/providers").then(r => r.json()),
+      fetch("/playground/analysis").then(r => r.json()),
+    ]);
+    const jobs = lastJobs = state.jobs;
+    for (const [name, model] of Object.entries(providers)) renderJob(name, model, jobs[name], state.tickets_total);
+    const active = Object.values(jobs).some(j => j.status === "running" || j.status === "stopping");
+    if (active) document.getElementById("batch").open = true;
+    clearTimeout(pollTimer);
+    if (active) pollTimer = setTimeout(refreshJobs, 2000);
+  }
+
+  async function jobAction(name, action) {
+    const options = { method: "POST" };
+    if (action === "start") {
+      const input = document.querySelector(`#job-${name} input`);
+      const mode = document.querySelector(`#job-${name} select`).value;
+      const limit = Math.max(1, Math.min(Number(input.max), Math.floor(Number(input.value)) || 1));
+      input.value = limit;
+      // Estimation à partir du débit de la dernière analyse de ce modèle dans le même mode, si elle existe
+      const last = lastJobs[name];
+      const per = last && last.mode === mode && last.per_ticket_s;
+      const estimate = per ? ` (environ ${duration(Math.round(per * limit))} d'après la dernière analyse)` : "";
+      if (!confirm(`Analyser ${limit} ticket(s) avec ${name} en mode ${mode}${estimate} ?`)) return;
+      options.headers = { "Content-Type": "application/json" };
+      options.body = JSON.stringify({ limit, mode });
+    }
+    const res = await fetch(`/playground/analysis/${encodeURIComponent(name)}/${action}`, options);
+    if (!res.ok) alert((await res.json()).detail || res.statusText);
+    refreshJobs();
+  }
+
+  refreshJobs();
 </script>
 </body>
 </html>
