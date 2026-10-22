@@ -28,14 +28,19 @@ Fonctions de l'API :
 - `/chat` : discuter avec l'assistant (RAG sur runbooks, CVE, tickets)
 - `/summarize` : résumer un ticket ou un incident
 
-État actuel : squelette en place, le développement n'a pas commencé.
-- `api/` : `main.py` et les paquets `routers/`, `llm/`, `rag/` ne contiennent qu'une docstring ; `pyproject.toml` créé par `uv init`, sans dépendance.
+État actuel :
+- `api/main.py` : application FastAPI, charge le `.env` de la racine (`python-dotenv`), expose `GET /health` → `{"status": "ok"}`.
+- `api/pyproject.toml` / `uv.lock` : dépendances `fastapi`, `uvicorn[standard]`, `python-dotenv`.
+- `routers/`, `llm/`, `rag/` : ne contiennent qu'une docstring.
 - `data/` : `tickets.json` et `cve.json` sont des listes vides, `runbooks/` est vide.
 - `frontend/` et `terraform/` : vides (jours 6 et 3).
 
 Le cours avance étape par étape : ne pas écrire de code ni générer de données sans demande explicite de l'utilisateur.
 
-Commandes (depuis `api/`) : `uv add <paquet>` pour ajouter une dépendance, `uv run <commande>` pour exécuter dans l'environnement du projet.
+Commandes (depuis `api/`) :
+- Lancer l'API en local avec rechargement : `uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000` (docs : http://127.0.0.1:8000/docs)
+- Ajouter une dépendance : `uv add <paquet>`
+- Exécuter dans l'environnement du projet : `uv run <commande>`
 
 ## Stack
 
@@ -47,7 +52,7 @@ Commandes (depuis `api/`) : `uv add <paquet>` pour ajouter une dépendance, `uv 
 
 ## Secrets et clés API
 
-- Toutes les clés API sont dans `.env` à la racine (actuellement : `GEMINI_API_KEY`).
+- Toutes les clés API sont dans `.env` à la racine (actuellement : `GEMINI_API_KEY`), chargé par `api/main.py`. Les noms des variables sont listés dans `.env.example`.
 - `.env` est ignoré par git. Le dépôt étant public, ne jamais commiter de secret, ne jamais écrire une clé en dur dans le code ni afficher sa valeur.
 - Le code charge les clés depuis `.env` par leur nom (ex. `python-dotenv`, `process.env`).
 - Si une nouvelle clé est nécessaire, demander à l'utilisateur de l'ajouter dans `.env` et documenter son nom dans un `.env.example` (sans valeur).
