@@ -30,8 +30,9 @@ Fonctions de l'API :
 
 État actuel :
 - `api/main.py` : application FastAPI, charge le `.env` de la racine (`python-dotenv`), expose `GET /health` → `{"status": "ok"}`.
-- `api/pyproject.toml` / `uv.lock` : dépendances `fastapi`, `uvicorn[standard]`, `python-dotenv`.
-- `routers/`, `llm/`, `rag/` : ne contiennent qu'une docstring.
+- `api/pyproject.toml` / `uv.lock` : dépendances `fastapi`, `uvicorn[standard]`, `python-dotenv`, `google-genai`.
+- `api/llm/clients.py` : une fonction par fournisseur LLM, toutes avec la signature `fournisseur(prompt: str, system: str | None = None) -> str`. Pour l'instant : `gemini()` (modèle `gemini-3.1-flash-lite`, le moins cher accessible ; température 0.1 ; réflexion `MINIMAL`). Le futur client local suivra la même signature.
+- `routers/`, `rag/` : ne contiennent qu'une docstring.
 - `data/` : `tickets.json` et `cve.json` sont des listes vides, `runbooks/` est vide.
 - `frontend/` et `terraform/` : vides (jours 6 et 3).
 
@@ -41,6 +42,7 @@ Commandes (depuis `api/`) :
 - Lancer l'API en local avec rechargement : `uv run uvicorn main:app --reload --host 127.0.0.1 --port 8000` (docs : http://127.0.0.1:8000/docs)
 - Ajouter une dépendance : `uv add <paquet>`
 - Exécuter dans l'environnement du projet : `uv run <commande>`
+- Sous Windows, arrêter uvicorn avant `uv add` / `uv sync` : le serveur verrouille des fichiers de `.venv` et l'installation échoue (« Accès refusé »).
 
 ## Stack
 
