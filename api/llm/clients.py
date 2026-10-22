@@ -9,7 +9,9 @@ Les clés API sont lues dans les variables d'environnement (chargées depuis le 
 """
 
 import os
+from collections.abc import Callable
 
+import httpx
 from google import genai
 from google.genai import types
 
@@ -20,6 +22,12 @@ GEMINI_MODEL = "gemini-3.5-flash-lite"
 TEMPERATURE = 0.1
 # Réflexion au minimum pour limiter les tokens de sortie
 GEMINI_THINKING_LEVEL = types.ThinkingLevel.MINIMAL
+
+# Modèle local servi par Ollama (télécharger avec : ollama pull phi4-mini)
+OLLAMA_MODEL = "phi4-mini"
+OLLAMA_URL = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+# Exécution locale, parfois lente sur CPU
+OLLAMA_TIMEOUT_S = 300
 
 _gemini_client: genai.Client | None = None
 
@@ -55,3 +63,29 @@ def gemini(prompt: str, system: str | None = None) -> str:
         ),
     )
     return response.text or ""
+
+
+def ollama(prompt: str, system: str | None = None) -> str:
+    """Envoie le prompt au modèle local (Ollama) et renvoie la réponse texte."""
+    response = httpx.post(
+        f"{OLLAMA_URL}/api/chat",
+        json={
+            "model": OLLAMA_MODEL,
+            "messages": [
+                {"role": "system", "content": _build_system(system)},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "options": {"temperature": TEMPERATURE},
+        },
+        timeout=OLLAMA_TIMEOUT_S,
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"]
+
+
+# Fournisseurs disponibles : nom -> (fonction, modèle)
+PROVIDERS: dict[str, tuple[Callable[[str, str | None], str], str]] = {
+    "gemini": (gemini, GEMINI_MODEL),
+    "phi4": (ollama, OLLAMA_MODEL),
+}

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant SOC – Playground</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385;
+    --border: #dfe3ea; --user: #2f5bea; --user-text: #ffffff; --bot: #ffffff;
+    --accent: #2f5bea; --error: #c62f3c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1e26; --text: #e6e9ef; --muted: #8b93a5;
+      --border: #2b313d; --user: #3d66f0; --user-text: #ffffff; --bot: #1f242e;
+      --accent: #6b8cff; --error: #ff6b78;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; flex-direction: column;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 16px; }
+  .switch { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .switch button {
+    border: 0; background: transparent; color: var(--muted); padding: 6px 14px;
+    font: inherit; cursor: pointer;
+  }
+  .switch button.active { background: var(--accent); color: #fff; }
+  .switch button small { display: block; font-size: 11px; opacity: .8; }
+  #clear { border: 1px solid var(--border); background: transparent; color: var(--muted);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer; font: inherit; }
+  main { flex: 1; overflow-y: auto; padding: 20px 16px; }
+  .thread { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .empty { color: var(--muted); text-align: center; margin-top: 15vh; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); color: var(--user-text); }
+  .msg.bot { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); }
+  .msg.error { border-color: var(--error); color: var(--error); }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .pending { color: var(--muted); font-style: italic; }
+  footer { padding: 12px 16px 16px; background: var(--bg); }
+  form { max-width: 820px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
+  textarea { flex: 1; resize: none; border: 0; outline: none; background: transparent;
+    color: var(--text); font: inherit; max-height: 200px; padding: 6px; }
+  #send { border: 0; background: var(--accent); color: #fff; border-radius: 8px;
+    padding: 8px 16px; font: inherit; cursor: pointer; }
+  #send:disabled { opacity: .5; cursor: default; }
+  .hint { max-width: 820px; margin: 6px auto 0; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Assistant SOC · Playground</h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <div class="switch" id="switch"></div>
+    <button id="clear" type="button" title="Effacer la conversation">Effacer</button>
+  </div>
+</header>
+<main><div class="thread" id="thread"><p class="empty" id="empty">Colle une alerte de sécurité pour l'analyser.</p></div></main>
+<footer>
+  <form id="form">
+    <textarea id="input" rows="1" placeholder="Décris une alerte…" autofocus></textarea>
+    <button id="send" type="submit">Envoyer</button>
+  </form>
+  <p class="hint">Entrée pour envoyer · Maj+Entrée pour aller à la ligne · chaque message est analysé seul (pas de mémoire de conversation)</p>
+</footer>
+<script>
+  const thread = document.getElementById("thread");
+  const input = document.getElementById("input");
+  const send = document.getElementById("send");
+  const switchEl = document.getElementById("switch");
+  let provider = "gemini";
+  try { provider = localStorage.getItem("provider") || provider; } catch {}
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+  // Markdown minimal : gras et code en ligne
+  function render(text) {
+    return escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  }
+
+  function addMessage(cls, html) {
+    document.getElementById("empty")?.remove();
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.innerHTML = html;
+    thread.appendChild(div);
+    div.scrollIntoView({ behavior: "smooth", block: "end" });
+    return div;
+  }
+
+  async function loadProviders() {
+    const res = await fetch("/playground/providers");
+    const providers = await res.json();
+    if (!(provider in providers)) provider = Object.keys(providers)[0];
+    switchEl.innerHTML = "";
+    for (const [name, model] of Object.entries(providers)) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.innerHTML = `${escapeHtml(name)}<small>${escapeHtml(model)}</small>`;
+      b.classList.toggle("active", name === provider);
+      b.onclick = () => {
+        provider = name;
+        try { localStorage.setItem("provider", name); } catch {}
+        [...switchEl.children].forEach(x => x.classList.toggle("active", x === b));
+        input.focus();
+      };
+      switchEl.appendChild(b);
+    }
+  }
+
+  async function ask(prompt) {
+    addMessage("user", escapeHtml(prompt));
+    const bubble = addMessage("bot", `<span class="pending">${escapeHtml(provider)} réfléchit… 0 s</span>`);
+    const start = Date.now();
+    const timer = setInterval(() => {
+      bubble.querySelector(".pending").textContent = `${provider} réfléchit… ${Math.round((Date.now() - start) / 1000)} s`;
+    }, 1000);
+    const used = provider;
+    send.disabled = true;
+    try {
+      const res = await fetch("/playground/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: used, prompt }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      bubble.innerHTML = render(data.answer) +
+        `<div class="meta">${escapeHtml(data.provider)} · ${escapeHtml(data.model)} · ${data.duration_s} s</div>`;
+    } catch (err) {
+      bubble.classList.add("error");
+      bubble.innerHTML = escapeHtml(String(err.message || err)) +
+        `<div class="meta">${escapeHtml(used)}</div>`;
+    } finally {
+      clearInterval(timer);
+      send.disabled = false;
+      bubble.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }
+
+  document.getElementById("form").addEventListener("submit", e => {
+    e.preventDefault();
+    const prompt = input.value.trim();
+    if (!prompt || send.disabled) return;
+    input.value = "";
+    input.style.height = "auto";
+    ask(prompt);
+  });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById("form").requestSubmit();
+    }
+  });
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
+  });
+  document.getElementById("clear").onclick = () => {
+    thread.innerHTML = '<p class="empty" id="empty">Colle une alerte de sécurité pour l\'analyser.</p>';
+    input.focus();
+  };
+
+  loadProviders();
+</script>
+</body>
+</html>

@@ -9,7 +9,11 @@ from fastapi import FastAPI
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(ENV_FILE)
 
+# Importé après load_dotenv : les clients LLM lisent les variables d'environnement
+from routers import playground  # noqa: E402
+
 app = FastAPI(title="Assistant SOC")
+app.include_router(playground.router)
 
 
 @app.get("/health")

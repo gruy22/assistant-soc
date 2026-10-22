@@ -66,6 +66,13 @@ Corrections apportées : le format est donné sous forme de modèle à remplir, 
 - l'alerte SSH root est classée HIGH, avec 3 actions ;
 - l'alerte svchost, trop vague, renvoie « incertitude » en précisant les informations manquantes.
 
+## Ajout : modèle local phi4-mini et playground (22/10/2026, réalisé)
+
+- **Installation :** Ollama 0.40.8 et le modèle `phi4-mini` téléchargé avec `ollama pull`.
+- **Client local :** `clients.ollama()` appelle l'API Ollama `/api/chat` avec la même signature, le même prompt SOC et la même température (0.1) que Gemini. Le registre `PROVIDERS` associe `gemini` et `phi4` à leur fonction.
+- **Playground :** une page de chat sur `/playground`, avec bascule entre `gemini` et `phi4`, s'appuie sur l'endpoint `POST /playground/ask`.
+- **Tests :** l'alerte SSH root est classée HIGH par les deux fournisseurs, avec le format respecté. Durées : phi4 11 s, Gemini 8 s. L'interface a été testée dans le navigateur avec phi4 (réponse en 9 s). Un fournisseur inconnu renvoie 400.
+
 ## 5. Finaliser
 
 - Mettre à jour `CLAUDE.md` : modèle, température, rôle de `llm/clients.py` et nouvelle dépendance.
