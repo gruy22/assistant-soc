@@ -54,6 +54,18 @@ Aucune route n'est modifiée à cette étape.
 - Afficher le nombre de tokens consommés (entrée, réflexion, sortie) renvoyé par l'API, pour confirmer que la consommation est minimale.
 - La valeur de la clé ne doit apparaître nulle part dans les logs ni dans la sortie.
 
+## Ajout : prompt système SOC commun (22/10/2026, réalisé)
+
+À la demande de l'utilisateur, tous les appels LLM appliquent désormais les mêmes règles, définies dans `api/llm/prompts.py` en 4 blocs : rôle, contexte, contraintes et format de sortie. `clients.py` les ajoute à chaque appel, et le paramètre `system` ne fait qu'ajouter des instructions à la suite.
+
+Les tests sur deux alertes ont fait apparaître deux défauts de la version mot pour mot du cours :
+- le modèle recopiait la ligne de format ;
+- il inventait des détails absents de l'alerte.
+
+Corrections apportées : le format est donné sous forme de modèle à remplir, et la règle « incertitude » est renforcée. Résultat :
+- l'alerte SSH root est classée HIGH, avec 3 actions ;
+- l'alerte svchost, trop vague, renvoie « incertitude » en précisant les informations manquantes.
+
 ## 5. Finaliser
 
 - Mettre à jour `CLAUDE.md` : modèle, température, rôle de `llm/clients.py` et nouvelle dépendance.

@@ -32,6 +32,7 @@ Fonctions de l'API :
 - `api/main.py` : application FastAPI, charge le `.env` de la racine (`python-dotenv`), expose `GET /health` → `{"status": "ok"}`.
 - `api/pyproject.toml` / `uv.lock` : dépendances `fastapi`, `uvicorn[standard]`, `python-dotenv`, `google-genai`.
 - `api/llm/clients.py` : une fonction par fournisseur LLM, toutes avec la signature `fournisseur(prompt: str, system: str | None = None) -> str`. Pour l'instant : `gemini()` (modèle `gemini-3.5-flash-lite` : le 3.1 Flash-Lite, moins cher, était trop souvent saturé ; température 0.1, prise en compte jusqu'aux modèles 3.5, ignorée à partir de 3.6 ; réflexion `MINIMAL`). Le futur client local suivra la même signature.
+- `api/llm/prompts.py` : `SOC_SYSTEM_PROMPT`, règles communes à **tous** les utilisateurs et tous les appels LLM (rôle analyste SOC L2, contexte PME 500 postes AD + Linux / équipe de 2, réponses en français, 3 actions max, « incertitude » plutôt qu'inventer, format Sévérité HIGH/MEDIUM/LOW + Explication 2 phrases + Actions numérotées). Chaque fonction de `clients.py` l'applique toujours ; le paramètre `system` ne fait qu'ajouter des instructions à la suite, il ne le remplace pas.
 - `routers/`, `rag/` : ne contiennent qu'une docstring.
 - `data/` : `tickets.json` et `cve.json` sont des listes vides, `runbooks/` est vide.
 - `frontend/` et `terraform/` : vides (jours 6 et 3).

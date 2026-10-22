@@ -3,6 +3,8 @@
     fournisseur(prompt: str, system: str | None = None) -> str
 
 Les routes peuvent ainsi changer de fournisseur sans modifier leur code.
+Le prompt système SOC commun (llm/prompts.py) est toujours appliqué ; `system` ajoute
+des instructions propres à l'appel, à la suite de ces règles.
 Les clés API sont lues dans les variables d'environnement (chargées depuis le .env racine).
 """
 
@@ -10,6 +12,8 @@ import os
 
 from google import genai
 from google.genai import types
+
+from llm.prompts import SOC_SYSTEM_PROMPT
 
 # Flash-Lite 3.5 : 3.1 trop souvent saturé (erreurs 503). Les modèles >= 3.6 ignorent la température.
 GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -32,13 +36,20 @@ def _get_gemini_client() -> genai.Client:
     return _gemini_client
 
 
+def _build_system(system: str | None) -> str:
+    """Règles SOC communes, suivies des instructions propres à l'appel s'il y en a."""
+    if not system:
+        return SOC_SYSTEM_PROMPT
+    return f"{SOC_SYSTEM_PROMPT}\n# Instructions supplémentaires\n{system}"
+
+
 def gemini(prompt: str, system: str | None = None) -> str:
     """Envoie le prompt à Gemini et renvoie la réponse texte."""
     response = _get_gemini_client().models.generate_content(
         model=GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
-            system_instruction=system,
+            system_instruction=_build_system(system),
             temperature=TEMPERATURE,
             thinking_config=types.ThinkingConfig(thinking_level=GEMINI_THINKING_LEVEL),
         ),
