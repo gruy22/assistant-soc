@@ -28,6 +28,9 @@ OLLAMA_MODEL = "phi4-mini"
 OLLAMA_URL = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 # Exécution locale, parfois lente sur CPU
 OLLAMA_TIMEOUT_S = 300
+# Sous Windows, Ollama renvoie parfois 500 alors que la génération a réussi
+# (« health resp: ... wsarecv: An existing connection was forcibly closed ») : on réessaie.
+OLLAMA_ATTEMPTS = 2
 
 _gemini_client: genai.Client | None = None
 
@@ -67,21 +70,30 @@ def gemini(prompt: str, system: str | None = None) -> str:
 
 def ollama(prompt: str, system: str | None = None) -> str:
     """Envoie le prompt au modèle local (Ollama) et renvoie la réponse texte."""
-    response = httpx.post(
-        f"{OLLAMA_URL}/api/chat",
-        json={
-            "model": OLLAMA_MODEL,
-            "messages": [
-                {"role": "system", "content": _build_system(system)},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "options": {"temperature": TEMPERATURE},
-        },
-        timeout=OLLAMA_TIMEOUT_S,
-    )
-    response.raise_for_status()
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": _build_system(system)},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+        "options": {"temperature": TEMPERATURE},
+    }
+    for attempt in range(1, OLLAMA_ATTEMPTS + 1):
+        response = httpx.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=OLLAMA_TIMEOUT_S)
+        if response.status_code < 500 or attempt == OLLAMA_ATTEMPTS:
+            break
+    if response.is_error:
+        raise RuntimeError(f"Ollama a répondu {response.status_code} : {_ollama_error(response)}")
     return response.json()["message"]["content"]
+
+
+def _ollama_error(response: httpx.Response) -> str:
+    """Message d'erreur renvoyé par Ollama (champ « error » du JSON), sinon le texte brut."""
+    try:
+        return response.json()["error"]
+    except (ValueError, KeyError, TypeError):
+        return response.text or response.reason_phrase
 
 
 # Fournisseurs disponibles : nom -> (fonction, modèle)
